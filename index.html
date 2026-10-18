@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ferramentas de Advocacia</title>
+<meta name="description" content="Conversor de arquivos e transcritor de audiências que rodam no seu navegador.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#1f6f5c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/transcritor.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="app-head">
+    <div class="brand">Ferramentas de Advocacia</div>
+    <nav class="tabs" role="tablist" aria-label="Ferramentas">
+      <button role="tab" id="tabbtn-conversor" aria-controls="tab-conversor" data-tab="conversor">Conversor</button>
+      <button role="tab" id="tabbtn-transcritor" aria-controls="tab-transcritor" data-tab="transcritor">Transcritor</button>
+    </nav>
+    <div class="privacy">Nenhum arquivo sai do seu computador</div>
+  </header>
+
+  <!-- ===================== CONVERSOR ===================== -->
+  <section class="tab" id="tab-conversor" role="tabpanel" aria-labelledby="tabbtn-conversor">
+    <header>
+      <div>
+        <h1>PDF <span class="arrow">⇄</span> Markdown, JPG e PNG</h1>
+        <p class="sub">Solte vários arquivos de uma vez. PDFs viram Markdown ou imagens; Markdown e imagens viram PDF.</p>
+      </div>
+    </header>
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Selecionar arquivos">
+    <strong>Arraste os arquivos aqui ou clique para selecionar</strong>
+    <div class="formats"><span>.pdf → .md / .jpg / .png</span><span>.md / .txt → .pdf</span><span>.jpg / .png → .pdf</span></div>
+    <div class="hint">Pode misturar tipos diferentes no mesmo lote.</div>
+    <input type="file" id="picker" multiple accept=".pdf,.md,.markdown,.txt,.jpg,.jpeg,.png,application/pdf,text/markdown,text/plain,image/jpeg,image/png" hidden>
+  </div>
+
+  <div class="bar">
+    <div class="left">
+      <button class="primary" id="convertAll">Converter todos</button>
+      <button id="zipAll" disabled>Baixar todos (.zip)</button>
+      <button class="link" id="clearAll">Limpar lista</button>
+    </div>
+  </div>
+  <div class="opts">
+    <fieldset>
+      <legend>PDF de entrada</legend>
+      <label class="opt" for="pdfTarget">Converter para
+        <select id="pdfTarget"><option value="md">Markdown (.md)</option><option value="jpg">Imagens JPG</option><option value="png">Imagens PNG</option></select>
+      </label>
+      <label class="opt" for="dpi" id="dpiWrap">Resolução
+        <select id="dpi"><option value="100">100 dpi</option><option value="150" selected>150 dpi</option><option value="200">200 dpi</option><option value="300">300 dpi</option></select>
+      </label>
+      <label class="opt" for="pageBreaks" id="breaksWrap"><input type="checkbox" id="pageBreaks"> Marcar quebras de página</label>
+    </fieldset>
+    <fieldset>
+      <legend>PDF de saída</legend>
+      <label class="opt" for="pageSize">Papel
+        <select id="pageSize"><option value="A4">A4</option><option value="LETTER">Carta</option><option value="LEGAL">Ofício</option></select>
+      </label>
+      <label class="opt" for="imgMode">Imagens
+        <select id="imgMode"><option value="each">Um PDF por imagem</option><option value="merge">Juntar todas em um PDF</option></select>
+      </label>
+    </fieldset>
+  </div>
+  <div class="progress" aria-hidden="true"><div id="prog"></div></div>
+  <div class="count" id="count"></div>
+
+  <div class="list" id="list"></div>
+
+  <section class="preview" id="preview" hidden>
+    <div class="preview-head">
+      <div class="t" id="pvTitle"></div>
+      <div class="actions" id="pvActions"></div>
+    </div>
+    <div class="preview-body" id="pvBody"></div>
+  </section>
+  </section>
+
+  <!-- ===================== TRANSCRITOR ===================== -->
+  <section class="tab" id="tab-transcritor" role="tabpanel" aria-labelledby="tabbtn-transcritor" hidden>
+    <header>
+      <div>
+        <h1>Transcritor de audiências</h1>
+        <p class="sub">Transforme vídeos e áudios em texto com falantes identificados e minutagem. A transcrição roda no seu computador: nada é enviado para a internet.</p>
+      </div>
+    </header>
+
+    <div class="drop" id="t-drop" tabindex="0" role="button" aria-label="Selecionar vídeos ou áudios">
+      <strong>Arraste os vídeos ou áudios da audiência</strong>
+      <div class="formats"><span>MP4</span><span>MOV</span><span>WEBM</span><span>MP3</span><span>M4A</span><span>WAV</span><span>OGG</span></div>
+      <div class="hint">Cada arquivo vira uma seção (Vídeo 1, 2, 3…), na ordem da lista.</div>
+      <input type="file" id="t-picker" multiple accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.m4a,.wav,.ogg,.opus,.aac,.wma" hidden>
+    </div>
+
+    <div class="list" id="t-files"></div>
+
+    <details class="panel-sec" id="t-headerSec" open>
+      <summary>Dados da audiência <span class="count">· opcional, entram no cabeçalho do documento</span></summary>
+      <div class="seg-switch" role="radiogroup" aria-label="Como preencher">
+        <button role="radio" aria-checked="true" data-mode="ata" id="h-modeAta">Enviar a ata</button>
+        <button role="radio" aria-checked="false" data-mode="manual" id="h-modeManual">Digitar manualmente</button>
+      </div>
+      <div class="ata-drop" id="h-ataDrop" tabindex="0" role="button" aria-label="Enviar a ata da audiência">
+        <strong>Arraste a ata aqui ou clique para escolher</strong>
+        <span class="hint">PDF, Word (.docx) ou texto. O app lê processo, juízo, data, partes e presentes; depois você pode conferir e editar.</span>
+        <span class="ata-status" id="h-ataStatus" aria-live="polite"></span>
+        <button class="link" id="h-review" hidden>Ver e editar os dados encontrados</button>
+        <input type="file" id="h-ataPicker" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden>
+      </div>
+      <div class="form-grid" id="h-form">
+        <label for="h-proc">Processo nº<input id="h-proc" placeholder="0000000-00.0000.0.00.0000"></label>
+        <label for="h-juizo" class="span2">Juízo<input id="h-juizo" placeholder="1ª Vara Cível da Comarca de …"></label>
+        <label for="h-data">Data<input id="h-data" type="date"></label>
+        <label for="h-tipo">Audiência<input id="h-tipo" placeholder="Instrução e julgamento"></label>
+        <label for="h-local">Local<input id="h-local" placeholder="Videoconferência / sala de audiências"></label>
+        <label for="h-fato" class="span2">Resumo do fato<input id="h-fato" placeholder="Ação de indenização por acidente de trânsito"></label>
+        <div class="wide plist-wrap">
+          <span class="flabel">Autor(es)</span>
+          <div class="plist" id="h-autores"></div>
+          <button class="link add" data-add="autores">+ Adicionar autor</button>
+        </div>
+        <div class="wide plist-wrap">
+          <span class="flabel">Réu(s)</span>
+          <div class="plist" id="h-reus"></div>
+          <button class="link add" data-add="reus">+ Adicionar réu</button>
+        </div>
+        <label for="h-cliente">Nosso cliente
+          <select id="h-cliente"><option value="">Não marcar</option><option value="autor">Autor(es)</option><option value="reu">Réu(s)</option></select>
+        </label>
+        <div class="wide plist-wrap">
+          <span class="flabel">Presentes</span>
+          <div class="plist" id="h-presentes"></div>
+          <button class="link add" data-add="presentes">+ Adicionar pessoa</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="opts">
+      <fieldset>
+        <legend>Transcrição</legend>
+        <label class="opt" for="t-model">Precisão
+          <select id="t-model">
+            <option value="onnx-community/whisper-base">Rápida (≈150 MB)</option>
+            <option value="onnx-community/whisper-small" selected>Equilibrada (≈500 MB)</option>
+            <option value="onnx-community/whisper-large-v3-turbo">Máxima (≈1,6 GB)</option>
+          </select>
+        </label>
+        <label class="opt" for="t-lang">Idioma falado
+          <select id="t-lang">
+            <option value="portuguese" selected>Português</option>
+            <option value="">Detectar automaticamente</option>
+            <option value="english">Inglês</option>
+            <option value="spanish">Espanhol</option>
+            <option value="italian">Italiano</option>
+            <option value="french">Francês</option>
+            <option value="german">Alemão</option>
+          </select>
+        </label>
+        <label class="opt" for="t-task">Resultado
+          <select id="t-task">
+            <option value="transcribe" selected>Texto no idioma falado</option>
+            <option value="translate">Traduzir para o inglês</option>
+          </select>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Áudio e falantes</legend>
+        <label class="opt" for="t-clean"><input type="checkbox" id="t-clean"> Limpar ruído (filtro básico)</label>
+        <label class="opt" for="t-diar"><input type="checkbox" id="t-diar" checked> Separar vozes por IA <span class="small">(+27 MB na 1ª vez)</span></label>
+        <label class="opt" for="t-nvoices">Nº de vozes
+          <select id="t-nvoices">
+            <option value="0" selected>Automático</option>
+            <option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option>
+          </select>
+        </label>
+      </fieldset>
+    </div>
+
+    <div class="bar">
+      <div class="left">
+        <button class="primary" id="t-run" disabled>Transcrever</button>
+        <button class="link" id="t-cancel" hidden>Cancelar</button>
+        <button class="link" id="t-restore" hidden>Recuperar última transcrição</button>
+      </div>
+      <div class="count" id="t-device"></div>
+    </div>
+    <div class="t-status" id="t-status" hidden>
+      <div class="progress" aria-hidden="true"><div id="t-prog"></div></div>
+      <div class="count" id="t-statusText" aria-live="polite"></div>
+    </div>
+
+    <section class="panel" id="t-result" hidden>
+
+      <details class="panel-sec" open>
+        <summary>Falantes <span class="count" id="t-voiceHint"></span></summary>
+        <div id="t-voices" class="voices"></div>
+      </details>
+
+      <div class="export-bar">
+        <div class="left">
+          <button class="primary" id="x-md">Baixar .md</button>
+          <button id="x-docx">Word (.docx)</button>
+          <button id="x-txt">.txt</button>
+          <button id="x-srt">Legendas .srt</button>
+          <button id="x-claude" title="Copia a transcrição com instruções prontas para colar no Claude">Copiar para o Claude</button>
+        </div>
+        <label class="opt" for="x-times"><input type="checkbox" id="x-times" checked> Incluir minutagem</label>
+      </div>
+
+      <div class="editor">
+        <div class="player-col">
+          <div class="player" id="t-player"><p class="count">Clique numa fala para ouvir o trecho.</p></div>
+          <p class="hint small">Clique no horário de uma fala para pular para aquele ponto. Edite o texto direto na fala; troque o falante pela lista.</p>
+        </div>
+        <div class="segs" id="t-segs"></div>
+      </div>
+    </section>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/pdfmake.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.10/build/vfs_fonts.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="js/tabs.js"></script>
+<script src="js/conversor.js"></script>
+<script type="module" src="js/transcritor.js"></script>
+</body>
+</html>

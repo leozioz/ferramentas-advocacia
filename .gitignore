@@ -1,0 +1,8 @@
+tools/_saida/
+# arquivos de teste têm dados de clientes: nunca publicar
+testes/
+*.wav
+*.mp4
+*.mp3
+*.m4a
+.claude/

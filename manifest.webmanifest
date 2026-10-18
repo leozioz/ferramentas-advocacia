@@ -1,0 +1,15 @@
+{
+  "name": "Ferramentas de Advocacia",
+  "short_name": "Advocacia",
+  "description": "Conversor de arquivos e transcritor de audiências que rodam no seu navegador.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f4",
+  "theme_color": "#1f6f5c",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
