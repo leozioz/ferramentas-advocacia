@@ -465,7 +465,7 @@ async function importAta(file) {
   const stEl = $('h-ataStatus');
   stEl.className = 'ata-status'; stEl.textContent = 'Lendo a ata…';
   try {
-    const text = await ataText(file);
+    const text = await ataText(file, (msg) => (stEl.textContent = msg));
     const a = parseAta(text);
     const got = [];
     const labels = { proc: 'processo', juizo: 'juízo', tipo: 'tipo de audiência', data: 'data', local: 'local' };

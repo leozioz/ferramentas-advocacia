@@ -1,17 +1,32 @@
 // Ata da audiência: extrai o texto (PDF, Word ou .txt) e encontra processo, juízo, partes e presentes.
 
-export async function ataText(file) {
+export async function ataText(file, onProgress) {
   const name = file.name.toLowerCase();
   if (name.endsWith('.pdf')) {
     const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
     let out = '';
     for (let p = 1; p <= pdf.numPages; p++) {
-      const tc = await (await pdf.getPage(p)).getTextContent();
-      for (const it of tc.items) out += (it.str || '') + (it.hasEOL ? '\n' : '');
-      out += '\n';
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      let txt = '';
+      for (const it of tc.items) txt += (it.str || '') + (it.hasEOL ? '\n' : '');
+      if (txt.replace(/\s/g, '').length < 20 && window.OCR && p <= 15) {
+        // ata digitalizada: lê a página com OCR (uma linha por parágrafo reconhecido)
+        if (onProgress) onProgress(`Lendo a página ${p} de ${pdf.numPages} da ata (OCR)…`);
+        const vp = page.getViewport({ scale: 200 / 72 });
+        const c = document.createElement('canvas');
+        c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        await page.render({ canvasContext: ctx, viewport: vp, intent: 'print' }).promise; // 'print': não depende da aba estar visível
+        const r = await OCR.recognize(c);
+        txt = r.text;
+        c.width = c.height = 0;
+      }
+      out += txt + '\n';
     }
     await pdf.destroy();
-    if (!out.replace(/\s/g, '')) throw new Error('A ata em PDF não tem texto selecionável (parece digitalizada). Tente a versão em Word ou um PDF gerado pelo sistema do tribunal.');
+    if (!out.replace(/\s/g, '')) throw new Error('Não foi possível ler texto na ata, nem por OCR. Tente a versão em Word ou um PDF gerado pelo sistema do tribunal.');
     return out;
   }
   if (name.endsWith('.docx')) {

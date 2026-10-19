@@ -75,6 +75,7 @@ const NUMBERED = /^(\(?\d{1,3}[.)]|\(?[a-z][.)])\s+/i;
 async function pdfToMarkdown(buf, opts) {
   const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
   const pages = [];
+  const ocrPages = new Map(); // página sem texto (digitalizada) → parágrafos lidos por OCR
   const weight = new Map();
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
@@ -82,17 +83,48 @@ async function pdfToMarkdown(buf, opts) {
     const lines = groupLines(tc.items);
     pages.push(lines);
     for (const l of lines) weight.set(l.size, (weight.get(l.size) || 0) + l.text.length);
+    if (lines.reduce((a, l) => a + l.text.length, 0) < 20 && window.OCR) {
+      // página é só imagem: desenha a ~200 dpi e lê com OCR
+      const vp = page.getViewport({ scale: 200 / 72 });
+      const c = document.createElement('canvas');
+      c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp, intent: 'print' }).promise; // 'print': não depende da aba estar visível
+      const r = await OCR.recognize(c, (q) => opts.onProgress && opts.onProgress((p - 1 + q) / pdf.numPages, `Lendo a página ${p} de ${pdf.numPages} (OCR)`));
+      if (r.paragraphs.length) ocrPages.set(p - 1, r.paragraphs);
+      c.width = c.height = 0;
+    }
     page.cleanup();
   }
   const totalChars = [...weight.values()].reduce((a, b) => a + b, 0);
-  if (!totalChars) { await pdf.destroy(); throw new Error('O PDF não tem texto selecionável (parece digitalizado). É preciso OCR.'); }
-  const body = [...weight.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  if (!totalChars && !ocrPages.size) {
+    await pdf.destroy();
+    throw new Error('Não foi encontrado texto no PDF, nem por OCR. Confira se a digitalização está legível.');
+  }
+  const body = totalChars ? [...weight.entries()].sort((a, b) => b[1] - a[1])[0][0] : 0;
   const headSizes = [...weight.keys()].filter((s) => s >= body * 1.15 && weight.get(s) < totalChars * 0.3).sort((a, b) => b - a).slice(0, 4);
   const level = (s) => { const i = headSizes.indexOf(s); return i < 0 ? 0 : i + 1; };
 
   const blocks = [];
   pages.forEach((lines, pi) => {
     if (pi > 0 && opts.pageBreaks) blocks.push({ type: 'raw', text: '---' });
+    if (ocrPages.has(pi)) {
+      // o OCR às vezes quebra o parágrafo no meio da frase: junta quando a anterior não terminou
+      // (sem ponto final) e a seguinte começa com minúscula
+      const paras = [];
+      for (const t of ocrPages.get(pi)) {
+        const prev = paras[paras.length - 1];
+        if (prev && !/[.:;!?]$/.test(prev) && /^[a-zà-ú(]/.test(t)) paras[paras.length - 1] = prev + ' ' + t;
+        else paras.push(t);
+      }
+      for (const t of paras) {
+        if (/^\d{1,4}$/.test(t)) continue; // número de página
+        if (BULLET.test(t)) blocks.push({ type: 'li', text: t.replace(BULLET, ''), x: 0, ord: false });
+        else blocks.push({ type: 'p', text: t });
+      }
+      return;
+    }
     let cur = null, prev = null;
     lines.forEach((l, li) => {
       if (/^\d{1,4}(\s*(de|of|\/)\s*\d{1,4})?$|^(página|page|pág\.?)\s*\d+(\s*(de|of|\/)\s*\d+)?$/i.test(l.text) && (li === 0 || li === lines.length - 1)) return;
@@ -223,37 +255,58 @@ function markdownToPdf(md, title, pageSize) {
 /* ---------- imagens ⇄ PDF ---------- */
 const PAGE_H = { A4: 841.89, LETTER: 792, LEGAL: 1008 };
 
-async function imageNode(file, pageSize, first) {
-  const bmp = await createImageBitmap(file);
-  const isPng = /png$/i.test(file.type) || /\.png$/i.test(file.name);
-  const c = document.createElement('canvas');
-  c.width = bmp.width; c.height = bmp.height;
-  const ctx = c.getContext('2d');
-  if (!isPng) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); }
-  ctx.drawImage(bmp, 0, 0);
-  const landscape = bmp.width > bmp.height;
-  bmp.close();
-  const data = c.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.92);
-  c.width = c.height = 0;
-  const m = 28, pw = PAGE_W[pageSize], ph = PAGE_H[pageSize];
-  const [w, h] = landscape ? [ph, pw] : [pw, ph];
-  const node = { image: data, fit: [w - m * 2, h - m * 2], alignment: 'center' };
-  if (!first) { node.pageBreak = 'before'; node.pageOrientation = landscape ? 'landscape' : 'portrait'; }
-  return { node, landscape };
-}
-
-async function imagesToPdf(files, pageSize, title) {
-  const content = [];
-  let orientation = 'portrait';
+// Uma página por imagem, ajustada ao papel. Com OCR, o PDF sai "pesquisável": a foto visível e, por trás,
+// o texto reconhecido invisível (modo de texto 3), palavra por palavra na posição certa. Dá para selecionar,
+// buscar (Ctrl+F), copiar e converter para Markdown, como num PDF salvo pelo Word.
+async function imagesToPdf(files, pageSize, title, { ocr = false, onProgress } = {}) {
+  const { PDFDocument, StandardFonts, PDFNumber, PDFOperator } = PDFLib;
+  const doc = await PDFDocument.create();
+  doc.setTitle(title);
+  const font = ocr ? await doc.embedFont(StandardFonts.Helvetica) : null;
+  const op = (name, ...args) => PDFOperator.of(name, args);
   for (let i = 0; i < files.length; i++) {
-    const { node, landscape } = await imageNode(files[i], pageSize, i === 0);
-    if (i === 0) orientation = landscape ? 'landscape' : 'portrait';
-    content.push(node);
+    const file = files[i];
+    const bmp = await createImageBitmap(file); // respeita a orientação da foto (EXIF)
+    const isPng = /png$/i.test(file.type) || /\.png$/i.test(file.name);
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d');
+    if (!isPng) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); }
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close();
+    const bytes = new Uint8Array(await (await new Promise((r) => c.toBlob(r, isPng ? 'image/png' : 'image/jpeg', 0.92))).arrayBuffer());
+    const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    const landscape = c.width > c.height, m = 28;
+    const [pw, ph] = landscape ? [PAGE_H[pageSize], PAGE_W[pageSize]] : [PAGE_W[pageSize], PAGE_H[pageSize]];
+    const k = Math.min((pw - m * 2) / c.width, (ph - m * 2) / c.height);
+    const w = c.width * k, h = c.height * k, ox = (pw - w) / 2, oy = (ph - h) / 2;
+    const page = doc.addPage([pw, ph]);
+    page.drawImage(img, { x: ox, y: oy, width: w, height: h });
+    if (ocr) {
+      const r = await OCR.recognize(c, (p) => onProgress && onProgress((i + p) / files.length));
+      const key = page.node.newFontDictionary(font.name, font.ref);
+      const ops = [op('BT'), op('Tr', PDFNumber.of(3))];
+      for (const wd of r.words) {
+        // Helvetica cobre o português (WinAnsi); caractere fora disso vira "?"
+        const text = [...wd.text].map((ch) => { try { font.encodeText(ch); return ch; } catch (e) { return '?'; } }).join('');
+        const bw = (wd.x1 - wd.x0) * k, bh = (wd.y1 - wd.y0) * k;
+        if (bw <= 0 || bh <= 0) continue;
+        const size = Math.max(1, bh * 0.92);
+        const natural = font.widthOfTextAtSize(text, size) || 1;
+        ops.push(
+          op('Tf', key, PDFNumber.of(size)),
+          op('Tz', PDFNumber.of((bw / natural) * 100)),
+          op('Tm', PDFNumber.of(1), PDFNumber.of(0), PDFNumber.of(0), PDFNumber.of(1), PDFNumber.of(ox + wd.x0 * k), PDFNumber.of(oy + h - wd.y1 * k + bh * 0.18)),
+          op('Tj', font.encodeText(text + ' ')),
+        );
+      }
+      ops.push(op('ET'));
+      page.pushOperators(...ops);
+    }
+    c.width = c.height = 0;
+    if (!ocr && onProgress) onProgress((i + 1) / files.length);
   }
-  const doc = { pageSize, pageOrientation: orientation, pageMargins: [28, 28, 28, 28], info: { title }, content };
-  return new Promise((resolve, reject) => {
-    try { pdfMake.createPdf(doc).getBlob(resolve); } catch (e) { reject(e); }
-  });
+  return new Blob([await doc.save()], { type: 'application/pdf' });
 }
 
 async function pdfToImages(buf, fmt, dpi, base) {
@@ -267,7 +320,7 @@ async function pdfToImages(buf, fmt, dpi, base) {
     c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    await page.render({ canvasContext: ctx, viewport: vp, intent: 'print' }).promise; // 'print': não depende da aba estar visível
     const blob = await new Promise((r) => c.toBlob(r, mime, 0.9));
     c.width = c.height = 0;
     page.cleanup();
@@ -314,7 +367,7 @@ function render() {
       <div class="row${it.id === selected ? ' sel' : ''}" data-id="${it.id}">
         <div class="dir">${dirLabel(it)}</div>
         <div class="name"><div class="fn">${esc(it.name)}</div>
-          <div class="meta">${fmtSize(it.size)}${outSummary(it)}${it.error ? ' · ' + esc(it.error) : ''}</div></div>
+          <div class="meta">${fmtSize(it.size)}${it.prog ? ' · ' + esc(it.prog) : outSummary(it)}${it.error ? ' · ' + esc(it.error) : ''}</div></div>
         <span class="chip ${it.status}">${STATUS[it.status]}</span>
         <div class="actions">
           ${it.outs.length ? `<button class="link" data-act="save" data-id="${it.id}">Baixar</button>` : ''}
@@ -381,6 +434,14 @@ function renderPreview() {
   const sv = $('pvSave'); if (sv) sv.onclick = () => saveItem(it);
 }
 
+// Andamento de conversões longas (OCR), mostrado na linha do arquivo
+let progT = 0;
+function progress(it, msg, p) {
+  it.prog = `${msg}… ${Math.round(p * 100)}%`;
+  const now = performance.now();
+  if (now - progT > 250 || p >= 1) { progT = now; render(); }
+}
+
 async function getText(it) { return it.text != null ? it.text : (it.text = await it.file.text()); }
 
 async function convert(it) {
@@ -391,18 +452,21 @@ async function convert(it) {
       it.target = pdfTarget();
       const buf = await it.file.arrayBuffer();
       if (it.target === 'md') {
-        it.md = await pdfToMarkdown(buf, { pageBreaks: $('pageBreaks').checked });
+        it.md = await pdfToMarkdown(buf, { pageBreaks: $('pageBreaks').checked, onProgress: (p, msg) => progress(it, msg, p) });
         it.outs = [{ name: base + '.md', blob: new Blob([it.md], { type: 'text/markdown' }) }];
       } else {
         it.outs = await pdfToImages(buf, it.target, +$('dpi').value, base);
       }
     } else if (it.kind === 'img') {
-      it.outs = [{ name: base + '.pdf', blob: await imagesToPdf([it.file], $('pageSize').value, base) }];
+      const ocr = $('imgOcr').checked;
+      const blob = await imagesToPdf([it.file], $('pageSize').value, base, { ocr, onProgress: (p) => progress(it, 'Lendo o texto da imagem', p) });
+      it.outs = [{ name: base + '.pdf', blob }];
     } else {
       it.outs = [{ name: base + '.pdf', blob: await markdownToPdf(await getText(it), base, $('pageSize').value) }];
     }
-    it.status = 'done';
+    it.status = 'done'; it.prog = null;
   } catch (e) {
+    it.prog = null;
     it.status = 'error'; it.error = (e && e.message) || 'Falha na conversão';
     if (/password/i.test(it.error)) it.error = 'PDF protegido por senha.';
     if (/Invalid PDF/i.test(it.error)) it.error = 'Arquivo PDF inválido ou corrompido.';
@@ -416,7 +480,9 @@ async function convertMergedImages(imgs) {
   render();
   const name = 'imagens-' + new Date().toISOString().slice(0, 10) + '.pdf';
   try {
-    const blob = await imagesToPdf(imgs.map((i) => i.file), $('pageSize').value, baseOf(name));
+    const blob = await imagesToPdf(imgs.map((i) => i.file), $('pageSize').value, baseOf(name),
+      { ocr: $('imgOcr').checked, onProgress: (p) => imgs.forEach((i) => progress(i, 'Lendo o texto das imagens', p)) });
+    imgs.forEach((i) => (i.prog = null));
     const combined = { id: nextId++, kind: 'combined', name, size: imgs.reduce((a, i) => a + i.size, 0), status: 'done', outs: [{ name, blob }], sources: imgs.map((i) => i.file) };
     items.splice(items.indexOf(imgs[0]), 0, combined);
     imgs.forEach((i) => { i.status = 'done'; i.note = 'incluída em ' + name; });

@@ -5,11 +5,12 @@ Site estático com ferramentas para o dia a dia do escritório. Tudo roda no nav
 ## Abas
 
 - **Conversor**: PDF → Markdown/JPG/PNG; Markdown e imagens → PDF; em lote, com download em .zip.
+  - OCR (Tesseract, no navegador): fotos viram PDF pesquisável (texto invisível por trás da imagem) e PDFs escaneados viram Markdown.
 - **Transcritor**: vídeos e áudios de audiência → texto com falantes identificados e minutagem.
   - Transcrição: Whisper (transformers.js) no navegador, com placa de vídeo (WebGPU) quando houver.
   - Separação de vozes: modelo CAM++ (3D-Speaker, distribuído pelo projeto sherpa-onnx) com onnxruntime-web; papéis sugeridos pelo conteúdo.
   - Exporta `.md`, Word (`.docx`, Calibri 11, justificado, cada vídeo em página nova), `.txt` e `.srt`.
-  - Dados da audiência: enviar a ata (PDF, .docx ou .txt) ou digitar manualmente. Os nomes dos presentes viram sugestões para os falantes.
+  - Dados da audiência: enviar a ata (PDF, inclusive escaneado, .docx ou .txt) ou digitar manualmente. Os nomes dos presentes viram sugestões para os falantes.
   - "Copiar para o Claude" monta o pedido de revisão de falantes e resumo dos depoimentos.
   - A última transcrição fica salva só no navegador de quem usou e pode ser recuperada.
 
@@ -21,6 +22,7 @@ Na primeira transcrição em cada computador, o navegador baixa os modelos (150 
 index.html            abas e marcação das duas ferramentas
 css/                  estilos
 js/conversor.js       conversor de arquivos
+js/ocr.js             OCR (Tesseract)
 js/transcritor.js     interface do transcritor
 js/asr-worker.js      Whisper (fala → texto)
 js/voz-worker.js      modelo de vozes (CAM++)
