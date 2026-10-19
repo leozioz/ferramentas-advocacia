@@ -34,7 +34,9 @@ let nextId = 1, running = false, playerFile = null;
 if (/[?&]dev\b/.test(location.search)) window.__transcritor = st; // diagnóstico (tools/testar-audiencia.js)
 
 /* ---------- workers: asr = Whisper (texto), voz = CAM++ (impressão digital de voz) ---------- */
-const workers = {}, FILES = { asr: './asr-worker.js', voz: './voz-worker.js' };
+// a versão (?v=N) do próprio transcritor.js vale também para os workers
+const V = new URL(import.meta.url).search;
+const workers = {}, FILES = { asr: './asr-worker.js' + V, voz: './voz-worker.js' + V };
 const VOICE_MODEL = new URL('../models/voz/campplus.onnx', import.meta.url).href;
 let rpcId = 0;
 const pending = new Map();

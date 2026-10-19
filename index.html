@@ -10,8 +10,8 @@
 <meta name="theme-color" content="#1f6f5c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
-<link rel="stylesheet" href="css/app.css">
-<link rel="stylesheet" href="css/transcritor.css">
+<link rel="stylesheet" href="css/app.css?v=3">
+<link rel="stylesheet" href="css/transcritor.css?v=3">
 </head>
 <body>
 <div class="wrap">
@@ -233,9 +233,19 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="js/ocr.js"></script>
-<script src="js/tabs.js"></script>
-<script src="js/conversor.js"></script>
-<script type="module" src="js/transcritor.js"></script>
+<script src="js/ocr.js?v=3"></script>
+<script src="js/tabs.js?v=3"></script>
+<script src="js/conversor.js?v=3"></script>
+<!-- ?v=N força o navegador a buscar a versão nova depois de cada atualização (o GitHub Pages guarda cópias por 10 min) -->
+<script type="importmap">
+{ "imports": {
+  "./js/t-audio.js": "./js/t-audio.js?v=3",
+  "./js/t-voices.js": "./js/t-voices.js?v=3",
+  "./js/t-export.js": "./js/t-export.js?v=3",
+  "./js/t-ata.js": "./js/t-ata.js?v=3",
+  "./js/combo.js": "./js/combo.js?v=3"
+} }
+</script>
+<script type="module" src="js/transcritor.js?v=3"></script>
 </body>
 </html>
