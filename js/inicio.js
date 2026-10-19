@@ -3,8 +3,6 @@
 (() => {
   const $ = (id) => document.getElementById(id);
 
-  const h = new Date().getHours();
-  $('i-saudacao').textContent = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
 
   document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => abrirAba(b.dataset.ir)));
 
