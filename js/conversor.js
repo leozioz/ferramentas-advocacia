@@ -570,4 +570,5 @@ $('zipAll').addEventListener('click', zipAll);
 $('clearAll').addEventListener('click', () => { items.length = 0; selected = null; render(); });
 
 render();
+window.conversorAdd = addFiles; // usado pela página inicial
 })();

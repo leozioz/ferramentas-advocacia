@@ -582,3 +582,7 @@ function showDevice(device) {
   try { const { gpu } = await rpc({ type: 'gpu' }); showDevice(gpu ? 'webgpu' : 'wasm'); } catch (e) {}
 })();
 renderFiles(); offerRestore();
+// usados pela página inicial
+window.transcritorAdd = addFiles;
+window.transcritorRestaurar = () => { const b = $('t-restore'); if (!b.hidden) b.click(); };
+window.dispatchEvent(new Event('transcritor-pronto'));

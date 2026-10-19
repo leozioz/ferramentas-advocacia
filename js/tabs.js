@@ -1,18 +1,17 @@
-// Abas: o endereço guarda a aba aberta (#conversor / #transcritor)
+// Abas: o endereço guarda a aba aberta (#inicio / #conversor / #transcritor). Sem endereço, abre o Início.
 (() => {
   const btns = [...document.querySelectorAll('.tabs [data-tab]')];
   function show(name) {
-    if (!btns.some((b) => b.dataset.tab === name)) name = 'conversor';
+    if (!btns.some((b) => b.dataset.tab === name)) name = 'inicio';
     for (const b of btns) {
       const on = b.dataset.tab === name;
       b.setAttribute('aria-selected', on);
       document.getElementById('tab-' + b.dataset.tab).hidden = !on;
     }
-    try { localStorage.setItem('aba', name); } catch (e) {}
+    window.dispatchEvent(new CustomEvent('aba', { detail: name }));
   }
-  btns.forEach((b) => b.addEventListener('click', () => { history.replaceState(null, '', '#' + b.dataset.tab); show(b.dataset.tab); }));
-  let start = location.hash.slice(1);
-  if (!start) try { start = localStorage.getItem('aba') || ''; } catch (e) {}
-  show(start);
+  window.abrirAba = (name) => { history.replaceState(null, '', '#' + name); show(name); window.scrollTo(0, 0); };
+  btns.forEach((b) => b.addEventListener('click', () => window.abrirAba(b.dataset.tab)));
+  show(location.hash.slice(1));
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 })();
