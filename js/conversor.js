@@ -91,26 +91,49 @@ async function imageCoverage(page) {
 }
 
 // Timbre e rodapé do escritório se repetem em toda página digitalizada (cada vez lidos um pouco
-// diferente pelo OCR): tira o que aparece, parecido, em metade ou mais das páginas. Tira também o
-// carimbo de assinatura eletrônica do tribunal.
+// diferente pelo OCR): tira as linhas que aparecem, parecidas, em metade ou mais das páginas. Tira
+// também o carimbo de assinatura eletrônica do tribunal, inteiro ou em pedaços.
 function dropRepeated(ocrPages) {
-  const STAMP = /verificadocs|confira autenticidade|assinado eletronicamente|informando \d{6,}/i;
+  const STAMP = /verificadocs|confira autenticidade|assinado eletronicamente|informando \d{6,}|bonsembiante|biante campana|^\W*\w{0,6}\s*p?ágina \d+\s*\/\s*\d+/i;
   const grams = (s) => { const t = s.toLowerCase().replace(/[^a-zà-ú0-9]/g, ''), g = new Set(); for (let i = 0; i < t.length - 2; i++) g.add(t.slice(i, i + 3)); return g; };
   const sim = (a, b) => {
     if (Math.min(a.size, b.size) < Math.max(a.size, b.size) * 0.6) return 0;
     let n = 0; for (const x of a) if (b.has(x)) n++;
     return (2 * n) / (a.size + b.size || 1);
   };
-  const pgs = [...ocrPages.entries()].map(([k, ps]) => [k, ps.map((t) => ({ t, g: grams(t) }))]);
+  const pgs = [...ocrPages.entries()].map(([k, pg]) => [k, pg.lines.map((l) => ({ l, g: grams(l.text), y: l.y0 / pg.height }))]);
   const min = Math.max(3, Math.ceil(pgs.length / 2));
-  for (const [k, ps] of pgs) {
-    ocrPages.set(k, ps.filter((p) => {
-      if (STAMP.test(p.t)) return false;
-      if (pgs.length < 3 || p.t.length > 250) return true;
-      const seen = pgs.filter(([k2, ps2]) => k2 === k || ps2.some((q) => sim(p.g, q.g) > 0.6)).length;
+  for (const [k, ls] of pgs) {
+    ocrPages.get(k).lines = ls.filter((p) => {
+      if (STAMP.test(p.l.text)) return false;
+      if (p.y > 0.88 && /mail|@|www\.|\.com\b|telefone|fone:|cel:/i.test(p.l.text)) return false; // contato no rodapé
+      if (pgs.length < 3 || p.l.text.length > 160) return true;
+      // igual em outras páginas; ou, no topo/pé da página, na mesma altura e só parecido (o OCR do
+      // rodapé varia muito de uma página para outra)
+      const margem = p.y < 0.12 || p.y > 0.85;
+      const seen = pgs.filter(([k2, ls2]) => k2 === k || ls2.some((q) => sim(p.g, q.g) > 0.6
+        || (margem && Math.abs(q.y - p.y) < 0.015 && sim(p.g, q.g) > 0.3))).length;
       return seen < min;
-    }).map((p) => p.t));
+    }).map((p) => p.l);
   }
+}
+
+// Erros do OCR que dá para consertar sem risco de estragar palavra certa
+function fixOcr(t) {
+  return t
+    .replace(/([a-zà-ú])!(?=[\s,.;:)]|$)/g, '$1l') // "polícia!" → "polícia"
+    .replace(/(?:\b8|&) (\d{1,2}º)/g, '§ $1') // "art. 286, 8 2º" → "§ 2º"
+    .replace(/\s*\S{0,3}\s*biante C\S*\s*\S*\s*\S{0,4}gi(?:na)? \d+\s*\/\s*\d+/gi, '') // pedaço do carimbo grudado na linha
+    .replace(/\bCT8\b|\bCTi B\b|\bCT B\b/g, 'CTB')
+    .replace(/\/STI\b/g, '/STJ')
+    .replace(/\bbJe\b/g, 'DJe')
+    .replace(/\b(\d{3}\.\d{3})[,.](\d{3}-\d{2})\b/g, '$1.$2') // CPF
+    .replace(/\b(OAB\/[A-Z]{2}\s*\d{2,3})[,.](\d{3})\b/g, '$1.$2')
+    .replace(/\b(Vol\.?,?)\s*\|/g, '$1 I')
+    .replace(/\b(?=[O0-9.\-/]{6,}\b)(?=[O0-9.\-/]*\d)[O0-9][O0-9.\-/]*\b/g, (m) => m.replace(/O/g, '0')) // "7OO60998242"
+    // títulos em romano: "1t= DO DIREITO", "il.a -", "Il.c —", "IV —="
+    // (sem traço só quando vem uma palavra toda em maiúsculas: "Ill DOS REQUISITOS")
+    .replace(/^([1Iilt]{1,3}V?|V)(?:[.:]\s?([a-c])[a-z]?)?(?:\s*[-—–=]+[=\s]*|\s+(?=[A-ZÀ-Ú]{3,}\b))(?=[A-ZÀ-Ú])/, (m, r, s) => r.replace(/[1ilt]/g, 'I') + (s ? '.' + s : '') + ' – ');
 }
 
 async function pdfToMarkdown(buf, opts) {
@@ -136,7 +159,7 @@ async function pdfToMarkdown(buf, opts) {
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
       await page.render({ canvasContext: ctx, viewport: vp, intent: 'print' }).promise; // 'print': não depende da aba estar visível
       const r = await OCR.recognize(c, (q) => opts.onProgress && opts.onProgress((p - 1 + q) / pdf.numPages, `Lendo a página ${p} de ${pdf.numPages} (OCR)`));
-      if (r.paragraphs.length) ocrPages.set(p - 1, r.paragraphs);
+      if (r.lines.length) ocrPages.set(p - 1, { lines: r.lines, width: r.width, height: r.height });
       c.width = c.height = 0;
     }
     page.cleanup();
@@ -151,6 +174,7 @@ async function pdfToMarkdown(buf, opts) {
   const level = (s) => { const i = headSizes.indexOf(s); return i < 0 ? 0 : i + 1; };
 
   dropRepeated(ocrPages);
+  for (const [k, pg] of ocrPages) ocrPages.set(k, OCR.toParagraphs(pg.lines, pg.width).map(fixOcr));
 
   const blocks = [];
   pages.forEach((lines, pi) => {
@@ -158,11 +182,18 @@ async function pdfToMarkdown(buf, opts) {
     if (ocrPages.has(pi)) {
       // o OCR às vezes quebra o parágrafo no meio da frase: junta quando a anterior não terminou
       // (sem ponto final) e a seguinte começa com minúscula
+      // (também entre páginas: parágrafo que continua na página seguinte)
       const paras = [];
-      for (const t of ocrPages.get(pi)) {
-        const prev = paras[paras.length - 1];
-        if (prev && !/[.:;!?]$/.test(prev) && /^[a-zà-ú(]/.test(t)) paras[paras.length - 1] = prev + ' ' + t;
-        else paras.push(t);
+      const ult = blocks[blocks.length - 1];
+      const vemDeAntes = ult && ult.type === 'p' && ocrPages.has(pi - 1);
+      let antes = vemDeAntes ? ult.text : null;
+      for (let t of ocrPages.get(pi)) {
+        if (/^8\)/.test(t) && /^f\)/.test(paras[paras.length - 1] || antes || '')) t = 'g' + t.slice(1); // "g)" lido como "8)"
+        const prev = paras.length ? paras[paras.length - 1] : antes;
+        if (prev && !/[.:;!?]$/.test(prev) && /^[a-zà-ú(]/.test(t)) {
+          if (paras.length) paras[paras.length - 1] = prev + ' ' + t;
+          else ult.text = antes = prev + ' ' + t;
+        } else paras.push(t);
       }
       for (const t of paras) {
         if (/^\d{1,4}$/.test(t)) continue; // número de página

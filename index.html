@@ -10,8 +10,8 @@
 <meta name="theme-color" content="#1f6f5c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
-<link rel="stylesheet" href="css/app.css?v=7">
-<link rel="stylesheet" href="css/transcritor.css?v=7">
+<link rel="stylesheet" href="css/app.css?v=8">
+<link rel="stylesheet" href="css/transcritor.css?v=8">
 </head>
 <body>
 <div class="wrap">
@@ -77,7 +77,7 @@
     <section class="i-novidades" aria-labelledby="i-nov-titulo">
       <h2 id="i-nov-titulo">Novidades</h2>
       <ol>
-        <li><time datetime="2026-10-20">20/10</time> <span><b>PDF escaneado com carimbo de assinatura</b> (como os do TJRS) agora é lido por OCR, sem timbre e rodapé repetidos.</span></li>
+        <li><time datetime="2026-10-20">20/10</time> <span><b>PDF escaneado com carimbo de assinatura</b> (como os do TJRS) agora é lido por OCR, sem timbre e rodapé repetidos. Sublinhados são apagados antes da leitura (menos erros) e títulos em romano corrigidos.</span></li>
         <li><time datetime="2026-10-19">19/10</time> <span><b>Página inicial</b> com atalhos e a transcrição em andamento.</span></li>
         <li><time datetime="2026-10-19">19/10</time> <span><b>OCR:</b> fotos de documentos viram PDF pesquisável, PDFs escaneados viram Markdown e atas escaneadas são lidas no Transcritor.</span></li>
         <li><time datetime="2026-10-18">18/10</time> <span><b>Site publicado</b>: acesso de qualquer computador.</span></li>
@@ -299,20 +299,20 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-<script src="js/ocr.js?v=7"></script>
-<script src="js/tabs.js?v=7"></script>
-<script src="js/conversor.js?v=7"></script>
-<script src="js/inicio.js?v=7"></script>
+<script src="js/ocr.js?v=8"></script>
+<script src="js/tabs.js?v=8"></script>
+<script src="js/conversor.js?v=8"></script>
+<script src="js/inicio.js?v=8"></script>
 <!-- ?v=N força o navegador a buscar a versão nova depois de cada atualização (o GitHub Pages guarda cópias por 10 min) -->
 <script type="importmap">
 { "imports": {
-  "./js/t-audio.js": "./js/t-audio.js?v=7",
-  "./js/t-voices.js": "./js/t-voices.js?v=7",
-  "./js/t-export.js": "./js/t-export.js?v=7",
-  "./js/t-ata.js": "./js/t-ata.js?v=7",
-  "./js/combo.js": "./js/combo.js?v=7"
+  "./js/t-audio.js": "./js/t-audio.js?v=8",
+  "./js/t-voices.js": "./js/t-voices.js?v=8",
+  "./js/t-export.js": "./js/t-export.js?v=8",
+  "./js/t-ata.js": "./js/t-ata.js?v=8",
+  "./js/combo.js": "./js/combo.js?v=8"
 } }
 </script>
-<script type="module" src="js/transcritor.js?v=7"></script>
+<script type="module" src="js/transcritor.js?v=8"></script>
 </body>
 </html>
