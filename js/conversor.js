@@ -72,6 +72,47 @@ function groupLines(textItems) {
 const BULLET = /^[•●○◦▪■□►▸‣⁃·\-–—*]\s+/;
 const NUMBERED = /^(\(?\d{1,3}[.)]|\(?[a-z][.)])\s+/i;
 
+// Fração da página ocupada pela maior imagem (0 a 1), seguindo as transformações do PDF
+async function imageCoverage(page) {
+  const O = pdfjsLib.OPS, ops = await page.getOperatorList();
+  const mul = (a, b) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3], a[4] * b[0] + a[5] * b[2] + b[4], a[4] * b[1] + a[5] * b[3] + b[5]];
+  const imgOps = new Set([O.paintImageXObject, O.paintJpegXObject, O.paintInlineImageXObject, O.paintImageMaskXObject].filter((x) => x !== undefined));
+  let m = [1, 0, 0, 1, 0, 0], max = 0;
+  const stack = [];
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i], args = ops.argsArray[i];
+    if (fn === O.save || fn === O.paintFormXObjectBegin) { stack.push(m); if (fn === O.paintFormXObjectBegin && args && args[0]) m = mul(args[0], m); }
+    else if (fn === O.restore || fn === O.paintFormXObjectEnd) m = stack.pop() || m;
+    else if (fn === O.transform) m = mul(args, m);
+    else if (imgOps.has(fn)) max = Math.max(max, Math.abs(m[0] * m[3] - m[1] * m[2]));
+  }
+  const [x0, y0, x1, y1] = page.view;
+  return max / Math.abs((x1 - x0) * (y1 - y0));
+}
+
+// Timbre e rodapé do escritório se repetem em toda página digitalizada (cada vez lidos um pouco
+// diferente pelo OCR): tira o que aparece, parecido, em metade ou mais das páginas. Tira também o
+// carimbo de assinatura eletrônica do tribunal.
+function dropRepeated(ocrPages) {
+  const STAMP = /verificadocs|confira autenticidade|assinado eletronicamente|informando \d{6,}/i;
+  const grams = (s) => { const t = s.toLowerCase().replace(/[^a-zà-ú0-9]/g, ''), g = new Set(); for (let i = 0; i < t.length - 2; i++) g.add(t.slice(i, i + 3)); return g; };
+  const sim = (a, b) => {
+    if (Math.min(a.size, b.size) < Math.max(a.size, b.size) * 0.6) return 0;
+    let n = 0; for (const x of a) if (b.has(x)) n++;
+    return (2 * n) / (a.size + b.size || 1);
+  };
+  const pgs = [...ocrPages.entries()].map(([k, ps]) => [k, ps.map((t) => ({ t, g: grams(t) }))]);
+  const min = Math.max(3, Math.ceil(pgs.length / 2));
+  for (const [k, ps] of pgs) {
+    ocrPages.set(k, ps.filter((p) => {
+      if (STAMP.test(p.t)) return false;
+      if (pgs.length < 3 || p.t.length > 250) return true;
+      const seen = pgs.filter(([k2, ps2]) => k2 === k || ps2.some((q) => sim(p.g, q.g) > 0.6)).length;
+      return seen < min;
+    }).map((p) => p.t));
+  }
+}
+
 async function pdfToMarkdown(buf, opts) {
   const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
   const pages = [];
@@ -83,8 +124,11 @@ async function pdfToMarkdown(buf, opts) {
     const lines = groupLines(tc.items);
     pages.push(lines);
     for (const l of lines) weight.set(l.size, (weight.get(l.size) || 0) + l.text.length);
-    if (lines.reduce((a, l) => a + l.text.length, 0) < 20 && window.OCR) {
-      // página é só imagem: desenha a ~200 dpi e lê com OCR
+    const chars = lines.reduce((a, l) => a + l.text.length, 0);
+    // digitalizada: sem texto, ou uma imagem cobrindo a página com pouco texto por cima
+    // (carimbo de assinatura eletrônica, número de página)
+    if (window.OCR && (chars < 20 || (chars < 600 && await imageCoverage(page) > 0.5))) {
+      // desenha a ~200 dpi e lê com OCR
       const vp = page.getViewport({ scale: 200 / 72 });
       const c = document.createElement('canvas');
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
@@ -105,6 +149,8 @@ async function pdfToMarkdown(buf, opts) {
   const body = totalChars ? [...weight.entries()].sort((a, b) => b[1] - a[1])[0][0] : 0;
   const headSizes = [...weight.keys()].filter((s) => s >= body * 1.15 && weight.get(s) < totalChars * 0.3).sort((a, b) => b - a).slice(0, 4);
   const level = (s) => { const i = headSizes.indexOf(s); return i < 0 ? 0 : i + 1; };
+
+  dropRepeated(ocrPages);
 
   const blocks = [];
   pages.forEach((lines, pi) => {
