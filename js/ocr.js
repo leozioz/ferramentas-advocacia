@@ -1,8 +1,70 @@
-// OCR (reconhecimento de texto em imagens) com Tesseract, no navegador. Usado pelo conversor
-// (foto → PDF pesquisável, PDF escaneado → Markdown) e pela leitura de atas escaneadas.
-// O "dicionário" de português (~15 MB) é baixado uma vez e fica no cache do navegador.
+// OCR (reconhecimento de texto em imagens) no navegador. Usado pelo conversor (foto → PDF pesquisável,
+// PDF escaneado → Markdown) e pela leitura de atas escaneadas.
+// Motor principal: PaddleOCR em segundo plano (js/paddle-worker.js, modelos de ~13 MB baixados uma vez).
+// Se ele não carregar, usa o Tesseract (dicionário de português de ~15 MB).
 (() => {
   let workerP = null, onProg = null;
+  const SRC = document.currentScript.src; // para achar o paddle-worker.js com a mesma versão (?v=)
+
+  /* ---------- PaddleOCR em segundo plano ---------- */
+  let paddle = null, paddleFalhou = false, seq = 0;
+  const pendentes = new Map();
+  function paddleWorker() {
+    if (!paddle) {
+      paddle = new Worker(new URL('paddle-worker.js' + new URL(SRC).search, SRC), { type: 'module' });
+      paddle.onmessage = ({ data }) => {
+        const p = pendentes.get(data.id);
+        if (!p) return;
+        if ('progresso' in data) { if (p.onProgress) p.onProgress(data.progresso); return; }
+        pendentes.delete(data.id);
+        if (data.erro) p.reject(new Error(data.erro)); else p.resolve(data.lines);
+      };
+      paddle.onerror = () => { for (const p of pendentes.values()) p.reject(new Error('Falha ao iniciar o OCR')); pendentes.clear(); paddle = null; };
+    }
+    return paddle;
+  }
+  async function lerPaddle(img, onProgress) {
+    const bmp = await createImageBitmap(img);
+    const id = ++seq;
+    return new Promise((resolve, reject) => {
+      pendentes.set(id, { resolve, reject, onProgress });
+      paddleWorker().postMessage({ id, img: bmp }, [bmp]);
+    });
+  }
+
+  // Erros típicos do PaddleOCR em português que dá para consertar sem dicionário
+  const SIGLAS = new Set('stj stf tst tse tjrs trf ctb cpc cpp cpf cnpj cnh oab detran ait inss clt rg cep'.split(' '));
+  const MISTO = /^(DJe|REsp|AREsp|AgRg|AgInt|EDcl|RMS|HC|nº|Nº)$/;
+  const GQ = [
+    [/\bg(ue|uem|uando|ual|uais|uant|uest|uase|uinze|uarta|uinta|uilo)/g, 'q$1'], [/\bG(ue|uem|uando|ual|uais|uant|uest|uase)/g, 'Q$1'],
+    [/reguer/g, 'requer'], [/Reguer/g, 'Requer'], [/regui/g, 'requi'], [/\bporgue\b/g, 'porque'], [/lguer\b/g, 'lquer'],
+    [/ineguív/g, 'inequív'], [/freg([uü])/g, 'freq$1'], [/conseg([uü])([êe])n/g, 'conseq$1$2n'], [/\bagu(el|il)/g, 'aqu$1'],
+    [/eguival/g, 'equival'], [/adegua/g, 'adequa'], [/liguid/g, 'liquid'], [/\b([nd])agu(el|il)/g, '$1aqu$2'],
+  ];
+  function corrige(text) {
+    let t = text.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim(); // traço do sublinhado lido como "_"
+    // letra no meio de número: "3oo" → "300", "82i.O35" → "821.035"
+    t = t.replace(/\b[\dOoIil.,/-]*\d[\dOoIil.,/-]*\b/g, (m) => (m.length >= 3 && /[OoIil]/.test(m) ? m.replace(/[Oo]/g, '0').replace(/[Iil]/g, '1') : m));
+    for (const [re, s] of GQ) t = t.replace(re, s);
+    t = t.replace(/\/(r[s$]|sc|pr|sp|rj|mg|df|es|ba|go)(?![A-Za-zÀ-ÿ])/gi, (m) => m.toUpperCase().replace('$', 'S')); // "Taquara/rs" → "/RS"
+    // maiúsculas trocadas no meio da palavra: "DEtRAN" → "DETRAN", "ExpressÃo" (entre maiúsculas) → "EXPRESSÃO"
+    const ws = t.split(' ');
+    const letras = (w) => w.replace(/[^A-Za-zÀ-ÿ]/g, '');
+    const caps = (w) => { const l = letras(w || ''); return l.length >= 2 && l === l.toUpperCase(); };
+    const caixa = (w, i) => {
+      const l = letras(w);
+      if (SIGLAS.has(l.toLowerCase())) return w.toUpperCase();
+      if (l.length < 2 || l === l.toLowerCase() || MISTO.test(l)) return w;
+      if (l === l.toUpperCase()) return w.replace(/Q(?!U)/g, 'O'); // "PROCEDIMENTQ" → "PROCEDIMENTO"
+      if (l[0] === l[0].toUpperCase() && l.slice(1) === l.slice(1).toLowerCase()) return w;
+      const up = [...l].filter((c) => c !== c.toLowerCase()).length;
+      if (up / l.length >= 0.5 || (up >= 2 && (caps(ws[i - 1]) || caps(ws[i + 1])))) return w.toUpperCase();
+      const j = w.search(/[A-Za-zÀ-ÿ]/);
+      return w.slice(0, j + 1) + w.slice(j + 1).toLowerCase();
+    };
+    // cada parte de "Alegre/RS" é vista separada
+    return ws.map((w, i) => w.split('/').map((p) => caixa(p, i)).join('/')).join(' ');
+  }
 
   function getWorker() {
     if (!workerP) {
@@ -107,6 +169,26 @@
   async function recognize(source, onProgress) {
     const img = prepare(source);
     const k = source.width / img.width;
+    if (!paddleFalhou && window.__ocrMotor !== 'tesseract') {
+      try {
+        const lines = (await lerPaddle(img, onProgress)).map((l) => ({ ...l, text: corrige(l.text) }));
+        const words = [];
+        for (const l of lines) for (const p of l.partes) {
+          // a posição de cada palavra é estimada pela proporção de letras dentro do trecho lido
+          const ps = corrige(p.text).split(/\s+/).filter(Boolean), tot = ps.join(' ').length || 1;
+          let pos = 0;
+          for (const w of ps) {
+            const a = p.x0 + ((p.x1 - p.x0) * pos) / tot, b = p.x0 + ((p.x1 - p.x0) * (pos + w.length)) / tot;
+            words.push({ text: w, x0: a * k, x1: b * k, y0: p.y0 * k, y1: p.y1 * k });
+            pos += w.length + 1;
+          }
+        }
+        return { text: lines.map((l) => l.text).join('\n'), paragraphs: toParagraphs(lines, img.width), words, lines, width: img.width, height: img.height };
+      } catch (e) {
+        console.warn('PaddleOCR indisponível, usando Tesseract:', e);
+        paddleFalhou = true;
+      }
+    }
     const worker = await getWorker();
     onProg = onProgress || null;
     try {
@@ -121,5 +203,5 @@
     } finally { onProg = null; }
   }
 
-  window.OCR = { recognize, toParagraphs };
+  window.OCR = { recognize, toParagraphs, corrige };
 })();

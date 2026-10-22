@@ -57,8 +57,8 @@
       partes.push(whisper ? `transcrição ✓ (${whisper})` : 'transcrição: baixa na 1ª vez (~500 MB)');
     } catch (e) {}
     try {
-      const dbs = indexedDB.databases ? await indexedDB.databases() : [];
-      partes.push(dbs.some((d) => d.name === 'keyval-store') ? 'OCR ✓' : 'OCR: baixa na 1ª vez (~15 MB)');
+      const ok = (await caches.keys()).includes('paddle-ocr') && (await (await caches.open('paddle-ocr')).keys()).length >= 3;
+      partes.push(ok ? 'OCR ✓' : 'OCR: baixa na 1ª vez (~13 MB)');
     } catch (e) {}
     $('i-status').textContent = partes.length ? 'Neste computador: ' + partes.join(' · ') + '.' : '';
   }
