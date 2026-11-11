@@ -136,7 +136,11 @@ $('t-files').addEventListener('input', (e) => {
 // (tools/transcritor-rapido). Se estiver aberto, o áudio vai para ele em vez do Whisper do navegador.
 const LOCAL = 'http://127.0.0.1:8771';
 const LANG_COD = { portuguese: 'pt', english: 'en', spanish: 'es', italian: 'it', french: 'fr', german: 'de' };
+// O navegador pede permissão de "rede local" para o site falar com o programa: só tenta depois que a
+// pessoa clicou em "Usar o Transcritor rápido" (lembrado neste computador), para não perguntar a todos.
+const querLocal = () => { try { return localStorage.getItem('t-local') === '1'; } catch (e) { return false; } };
 async function localAtivo() {
+  if (!querLocal()) return null;
   try {
     const r = await fetch(LOCAL + '/status', { signal: AbortSignal.timeout(1000) });
     return r.ok ? await r.json() : null;
@@ -619,11 +623,23 @@ function showDevice(device, onde) {
       ? 'Usando a placa de vídeo (transcrição acelerada).'
       : 'Sem placa de vídeo compatível: a transcrição usa o processador e fica mais lenta.';
 }
-(async () => {
+async function mostrarMotor() {
   const local = await localAtivo();
+  $('t-local').hidden = !!local;
   if (local) return showDevice('local', local.dispositivo);
   try { const { gpu } = await rpc({ type: 'gpu' }); showDevice(gpu ? 'webgpu' : 'wasm'); } catch (e) {}
-})();
+}
+$('t-local').addEventListener('click', async () => {
+  try { localStorage.setItem('t-local', '1'); } catch (e) {}
+  const local = await localAtivo();
+  if (local) { toast('Transcritor rápido conectado. As próximas transcrições usam a placa NVIDIA.'); return mostrarMotor(); }
+  let negado = false;
+  try { negado = (await navigator.permissions.query({ name: 'local-network-access' })).state === 'denied'; } catch (e) {}
+  toast(negado
+    ? 'O navegador bloqueou o acesso ao programa. Clique no cadeado ao lado do endereço, permita "Acesso à rede local" e clique de novo.'
+    : 'Não encontrei o programa. Abra o ícone "Transcritor rápido" na área de trabalho e clique de novo. Se o navegador perguntar sobre a rede local, clique em Permitir.');
+});
+mostrarMotor();
 renderFiles(); offerRestore();
 // usados pela página inicial
 window.transcritorAdd = addFiles;
