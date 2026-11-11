@@ -77,7 +77,8 @@ const sectionTitle = (f, i) => `VÍDEO ${i + 1} – ${up(f.title || f.name)}`;
 
 function observacoes(st) {
   const O = [];
-  O.push(`Transcrição automática gerada no navegador (${st.meta.modelLabel}) em ${new Date().toLocaleDateString('pt-BR')}. Conferir no áudio antes de usar em peça.`);
+  const onde = /Transcritor rápido/.test(st.meta.modelLabel || '') ? 'neste computador' : 'no navegador';
+  O.push(`Transcrição automática gerada ${onde} (${st.meta.modelLabel || 'Whisper'}) em ${new Date().toLocaleDateString('pt-BR')}. Conferir no áudio antes de usar em peça.`);
   if (st.meta.cleaned) O.push('Foi aplicado filtro de limpeza de ruído antes da transcrição.');
   if (st.meta.diarized) {
     const labels = voiceLabels(st.voices);
