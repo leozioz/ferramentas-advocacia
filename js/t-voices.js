@@ -4,12 +4,66 @@ const norm = (v) => { let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s)
 const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
 
 // vecs: array de vetores (ou null para falas curtas demais). k: nº de vozes (0 = automático).
+// durs: duração de cada fala (s). Com ela, usa o agrupamento por tempo de fala (agruparPorTempo).
 // Retorna um índice de voz por fala.
-// Limite para vetores do CAM++ (js/voz-worker.js). Medido em audiência real (tools/testar-audiencia.js):
-// 0,50–0,65 dá 87–91% do tempo de fala na voz certa; 0,55 separa um pouco a mais, o que é mais seguro com mais
-// pessoas. Vozes a mais o usuário junta dando o mesmo papel e nome (o documento trata como a mesma pessoa).
-// (O modelo anterior, WavLM, chegava a 72% com limite 0,90.)
-export function clusterVoices(vecs, k = 0, threshold = 0.55) {
+export function clusterVoices(vecs, k = 0, threshold, durs) {
+  if (durs) return agruparPorTempo(vecs, durs, k, threshold ?? 0.5);
+  return agruparSequencial(vecs, k, threshold ?? 0.55);
+}
+
+// Agrupamento por tempo de fala, para falas curtas (cortadas nas pausas):
+// 1) junta falas quase iguais (rápido, reduz a lista); 2) junta sempre os dois grupos mais parecidos
+// (média ponderada pela duração) até a semelhança cair abaixo do limite; 3) grupo com menos de 3% do tempo
+// (tosse, ruído, pedacinho) vai para o grupo grande mais parecido; 4) com k, junta até sobrar k.
+// Medido com gabarito (2 audiências reais, CAM++): 95% e 88% do tempo na voz certa, com o nº certo de vozes;
+// o agrupamento sequencial dava 82% e 87%.
+function agruparPorTempo(vecs, durs, k, limite) {
+  const items = vecs.map((v, i) => (v ? { i, v: norm(v), w: Math.max(0.3, durs[i] || 0) } : null)).filter(Boolean);
+  if (!items.length) return vecs.map(() => 0);
+  const soma = (a, b, wb = 1) => a.map((x, j) => x + b[j] * wb);
+  // 1) micro-grupos de falas muito parecidas (0,8): só para acelerar audiências longas
+  let g = [];
+  for (const it of items) {
+    let best = -1, bs = -2;
+    g.forEach((c, j) => { const s = dot(c.v, it.v); if (s > bs) { bs = s; best = j; } });
+    if (best >= 0 && bs >= 0.8) { const c = g[best]; c.sum = soma(c.sum, it.v, it.w); c.v = norm(c.sum); c.w += it.w; c.mem.push(it.i); }
+    else g.push({ sum: it.v.map((x) => x * it.w), v: it.v, w: it.w, mem: [it.i] });
+  }
+  const juntar = (a, b) => { const c = g[a], d = g[b]; c.sum = soma(c.sum, d.sum); c.v = norm(c.sum); c.w += d.w; c.mem.push(...d.mem); g.splice(b, 1); };
+  const maisParecidos = () => {
+    let bi = -1, bj = -1, bs = -2;
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) { const s = dot(g[i].v, g[j].v); if (s > bs) { bs = s; bi = i; bj = j; } }
+    return [bi, bj, bs];
+  };
+  // 2) aglomerativo até o limite
+  while (g.length > 1) { const [i, j, s] = maisParecidos(); if (s < limite) break; juntar(i, j); }
+  // 3) grupos pequenos vão para o grande mais parecido
+  const total = g.reduce((a, c) => a + c.w, 0);
+  for (;;) {
+    const peq = g.map((c, i) => [c.w, i]).filter(([w]) => w < total * 0.03).sort((a, b) => a[0] - b[0]);
+    const grandes = g.map((c, i) => i).filter((i) => g[i].w >= total * 0.03);
+    if (!peq.length || !grandes.length) break;
+    const p = peq[0][1];
+    let alvo = grandes[0], bs = -2;
+    for (const i of grandes) { const s = dot(g[i].v, g[p].v); if (s > bs) { bs = s; alvo = i; } }
+    juntar(alvo, p);
+  }
+  // 4) número de vozes escolhido pela pessoa
+  if (k > 0) while (g.length > k) { const [i, j] = maisParecidos(); juntar(i, j); }
+  // vozes na ordem em que aparecem; falas sem vetor herdam a voz da anterior (ou da próxima)
+  const grupoDe = new Map();
+  g.forEach((c, j) => c.mem.forEach((i) => grupoDe.set(i, j)));
+  const ordem = [];
+  for (const it of items) { const a = grupoDe.get(it.i); if (!ordem.includes(a)) ordem.push(a); }
+  const out = vecs.map((_, i) => (grupoDe.has(i) ? ordem.indexOf(grupoDe.get(i)) : -1));
+  for (let i = 0; i < out.length; i++) if (out[i] < 0) out[i] = i > 0 ? out[i - 1] : -1;
+  for (let i = out.length - 1; i >= 0; i--) if (out[i] < 0) out[i] = i < out.length - 1 ? out[i + 1] : 0;
+  return out;
+}
+
+// Agrupamento sequencial (antigo), para falas longas sem duração. Limite para vetores do CAM++
+// (js/voz-worker.js): 0,50–0,65 dava 87–91% do tempo de fala na voz certa em audiência real.
+function agruparSequencial(vecs, k, threshold) {
   const items = vecs.map((v, i) => (v ? { i, v: norm(v) } : null)).filter(Boolean);
   if (!items.length) return vecs.map(() => 0);
   // 1) agrupamento sequencial
@@ -91,9 +145,13 @@ export function suggestRoles(segs, n) {
   const free = new Set(st.map((_, i) => i).filter((i) => st[i].segs >= 3));
   // Juiz: quem abre a audiência (primeira fala com conteúdo). Medido em audiência real: a fatia de falas
   // não serve (o advogado que pergunta muito fala mais que o juiz).
+  // Com as falas cortadas nas pausas, a primeira fala longa pode ser a resposta da testemunha ("Boa tarde, me
+  // escuto."): se uma voz tem claramente mais falas típicas de juiz (3+ e o dobro da segunda), ela vem antes.
   const abertura = segs.find((s) => s.text.split(/\s+/).length >= 4);
   const pick = (score) => { let b = -1, bs = 0; for (const i of free) { const s = score(st[i], i); if (s > bs) { bs = s; b = i; } } return b; };
-  const j = abertura && free.has(abertura.voice) ? abertura.voice : pick((v) => v.juiz * 2);
+  const porJuiz = [...free].sort((a, b) => st[b].juiz - st[a].juiz);
+  const juizClaro = porJuiz.length && st[porJuiz[0]].juiz >= 3 && st[porJuiz[0]].juiz >= 2 * (porJuiz[1] != null ? st[porJuiz[1]].juiz : 0) ? porJuiz[0] : -1;
+  const j = juizClaro >= 0 ? juizClaro : abertura && free.has(abertura.voice) ? abertura.voice : pick((v) => v.juiz * 2);
   if (j >= 0) { roles[j] = 'JUIZ'; free.delete(j); }
   // A voz do juiz às vezes se divide em duas (perto/longe do microfone). Outra voz com falas típicas de juiz
   // (qualificação, compromisso, "Dr. Fulano, pode iniciar") também é o juiz.

@@ -99,11 +99,13 @@ class Pedido(BaseHTTPRequestHandler):
                 t0 = time.time()
                 segs, _ = modelo.transcribe(
                     audio, language=q.get('language') or None, task=q.get('task', 'transcribe'),
-                    beam_size=5, vad_filter=True, condition_on_previous_text=False,
+                    beam_size=5, vad_filter=True, condition_on_previous_text=False, word_timestamps=True,
                 )
                 out = []
                 for s in segs:
-                    out.append({'start': round(s.start, 2), 'end': round(s.end, 2), 'text': s.text})
+                    # horário de cada palavra: o site corta a fala nas pausas, onde costuma trocar quem fala
+                    palavras = [[round(w.start, 2), round(w.end, 2), w.word] for w in (s.words or [])]
+                    out.append({'start': round(s.start, 2), 'end': round(s.end, 2), 'text': s.text, 'words': palavras})
                     linha({'progresso': min(1, s.end / duracao) if duracao else 1})
                 print('Transcrito: %.0f s de áudio em %.0f s' % (duracao, time.time() - t0), flush=True)
             linha({'segmentos': out})
