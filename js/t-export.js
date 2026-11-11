@@ -147,16 +147,23 @@ export function toSrt(st, file) {
   }).join('\r\n');
 }
 
+// Mensagem para colar no Claude (plano do usuário, sem custo de API): pede a transcrição corrigida inteira,
+// no mesmo formato, pronta para usar.
 export function claudePrompt(st, md) {
   return [
     'Use a skill transcricao-audiencia.',
     '',
-    'Abaixo está a transcrição automática de uma audiência, gerada pelo meu app. Os falantes foram separados pela voz e os papéis foram sugeridos automaticamente, então podem estar errados.',
+    'Abaixo está a transcrição automática de uma audiência, gerada pelo meu app (Whisper + separação de vozes). Ela tem dois tipos de erro: falante errado (às vezes duas pessoas na mesma linha, ou uma fala curta como "Não." grudada na fala de outra pessoa) e palavras mal ouvidas (principalmente nomes de pessoas, ruas e lugares).',
     '',
-    st.ata
-      ? '1. Revise quem fala em cada trecho pelo contexto e confira com a ata (no final desta mensagem), como a skill orienta. Me pergunte o que faltar.'
-      : '1. Revise quem fala em cada trecho pelo contexto, como a skill orienta, e me pergunte o que faltar (quem é nosso cliente, se há ata).',
-    '2. Depois, faça um resumo por depoente com os pontos relevantes e eventuais contradições entre os depoimentos, sem opinar sobre o mérito.',
+    'Quero de volta a TRANSCRIÇÃO CORRIGIDA, inteira, no mesmo formato e com os mesmos horários. Regras:',
+    '1. Falantes: confira quem fala em cada linha pelo contexto (quem pergunta, quem responde, quem passa a palavra)' + (st.ata ? ' e pela ata no final desta mensagem (nomes das testemunhas, juiz, advogados e de qual parte cada um é).' : '.'),
+    '2. Quando uma linha tiver duas pessoas, separe em duas linhas, cada uma com o seu falante; a linha nova fica com o mesmo horário da original.',
+    '3. Use os nomes reais quando der para saber (ex.: "TESTEMUNHA – Fulano de Tal", "ADVOGADO DA AUTORA – Dr. Fulano"). Juiz/juíza conforme a ata.',
+    '4. Palavras: corrija só o que estiver claramente errado pelo contexto ou pela ata (nomes, lugares, termos jurídicos). Não reescreva, não resuma e não melhore o português: o depoimento tem que ficar como foi falado, com "né", "tá", repetições e frases incompletas.',
+    '5. Se não der para ter certeza de uma palavra, deixe como está e marque [?] logo depois. Trecho incompreensível: [inaudível].',
+    '6. Não invente nada que não esteja na transcrição.',
+    '',
+    'Depois da transcrição, uma lista curta com: (a) os falantes que você trocou ou separou, com o horário; (b) as palavras corrigidas; (c) as dúvidas que eu devo conferir no vídeo. Se faltar informação importante (por exemplo, quem é nosso cliente), me pergunte antes de começar.',
     '',
     '---',
     '',

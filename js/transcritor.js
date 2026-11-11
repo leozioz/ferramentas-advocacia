@@ -394,7 +394,10 @@ function renderSegs() {
         <button class="ts" data-act="seek" title="Ouvir a partir daqui">${fmtTime(s.start)}</button>
         ${diar ? `<select aria-label="Falante">${optionsHtml(s.voice)}</select>` : '<span></span>'}
         <div class="txt" contenteditable="plaintext-only" spellcheck="true">${esc(s.text)}</div>
-        <button class="del" data-act="del" aria-label="Apagar trecho" title="Apagar trecho">×</button>
+        <div class="acts">
+          <button class="add" data-act="add" aria-label="Adicionar linha abaixo" title="Adicionar linha abaixo (com o cursor no meio do texto, o que vem depois dele desce para a nova linha)">+</button>
+          <button class="del" data-act="del" aria-label="Apagar trecho" title="Apagar trecho">×</button>
+        </div>
       </div>`;
     }).join('');
     return `<h3 class="sec-title">Vídeo ${fi + 1} – ${esc(f.title || f.name)}</h3>${rows}`;
@@ -403,10 +406,36 @@ function renderSegs() {
   if (box.querySelector('.txt') && box.querySelector('.txt').contentEditable !== 'plaintext-only') box.querySelectorAll('.txt').forEach((t) => (t.contentEditable = 'true'));
 }
 const segOf = (el) => { const r = el.closest('.seg'); return r && { f: st.files[+r.dataset.f], s: st.files[+r.dataset.f].segments[+r.dataset.s], row: r }; };
+// "+": nova linha abaixo, para quando duas pessoas ficaram na mesma fala. Se o cursor estava no meio do texto,
+// o que vem depois dele desce para a linha nova. A linha nova já vem com outro falante (o da fala vizinha).
+let cursorEm = null; // { txt, pos }: guardado ao apertar o botão, antes de o texto perder o foco
+$('t-segs').addEventListener('mousedown', (e) => {
+  if (!e.target.closest('button[data-act="add"]')) return;
+  const sel = window.getSelection(), txt = e.target.closest('.seg').querySelector('.txt');
+  cursorEm = sel.rangeCount && txt.contains(sel.anchorNode) ? { txt, pos: sel.getRangeAt(0).startOffset } : null;
+});
+function addLinha(x) {
+  const segs = x.f.segments, i = segs.indexOf(x.s);
+  const txt = x.row.querySelector('.txt'), full = txt.textContent;
+  let pos = cursorEm && cursorEm.txt === txt && txt.childNodes.length <= 1 ? cursorEm.pos : full.length;
+  cursorEm = null;
+  if (!full.slice(0, pos).trim()) pos = full.length; // cursor no começo: só cria a linha vazia embaixo
+  const antes = full.slice(0, pos).trim(), depois = full.slice(pos).trim();
+  const vizinho = [segs[i + 1], segs[i - 1]].find((s) => s && s.voice !== x.s.voice);
+  // tempo: dividido pelo tamanho do texto, se houve divisão; senão, a linha nova começa no fim desta
+  const meio = depois && antes ? x.s.start + (x.s.end - x.s.start) * (antes.length / (antes.length + depois.length)) : x.s.end;
+  const nova = { start: meio, end: x.s.end, text: depois, voice: vizinho ? vizinho.voice : x.s.voice, vec: x.s.vec, corte: x.s.corte };
+  if (depois) { x.s.text = antes; x.s.end = meio; }
+  segs.splice(i + 1, 0, nova);
+  renderSegs(); renderVoices(); save();
+  const novaLinha = $('t-segs').querySelector(`.seg[data-f="${st.files.indexOf(x.f)}"][data-s="${i + 1}"] .txt`);
+  if (novaLinha) novaLinha.focus();
+}
 $('t-segs').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const x = segOf(b);
   if (b.dataset.act === 'seek') setPlayer(x.f, x.s.start, true);
+  if (b.dataset.act === 'add') addLinha(x);
   if (b.dataset.act === 'del') { x.f.segments.splice(x.f.segments.indexOf(x.s), 1); renderSegs(); save(); }
 });
 $('t-segs').addEventListener('change', (e) => {

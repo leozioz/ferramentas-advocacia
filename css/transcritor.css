@@ -99,8 +99,11 @@ html, body { margin: 0; }
 .seg select { font-size: 12px; max-width: 100%; color: var(--vc, var(--ink)); font-weight: 600; }
 .seg .txt { outline: none; padding: 2px 4px; border-radius: 4px; line-height: 1.55; min-width: 0; word-break: break-word; }
 .seg .txt:focus { background: var(--accent-soft); }
-.seg .del { opacity: 0; border: none; background: none; color: var(--muted); padding: 2px 6px; font-size: 16px; line-height: 1; }
-.seg:hover .del, .seg .del:focus { opacity: 1; }
+.seg .acts { display: flex; gap: 2px; }
+.seg .del, .seg .add { opacity: 0; border: none; background: none; color: var(--muted); padding: 2px 6px; font-size: 16px; line-height: 1; cursor: pointer; }
+.seg .add:hover { color: var(--accent); }
+.seg:hover .del, .seg .del:focus, .seg:hover .add, .seg .add:focus, .seg:focus-within .add, .seg:focus-within .del { opacity: 1; }
+@media (hover: none) { .seg .del, .seg .add { opacity: .6; } }
 
 @media (max-width: 860px) {
   .editor { grid-template-columns: 1fr; }
