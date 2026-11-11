@@ -23,6 +23,7 @@ index.html            abas e marcação das duas ferramentas
 css/                  estilos
 js/conversor.js       conversor de arquivos
 js/ocr.js             OCR: PaddleOCR (reserva: Tesseract) e correções do texto
+tools/transcritor-rapido/  Programa opcional: transcrição com placa NVIDIA (faster-whisper); instalar.ps1 cria o ícone
 js/paddle-worker.js   PaddleOCR em segundo plano (onnxruntime-web)
 js/transcritor.js     interface do transcritor
 js/asr-worker.js      Whisper (fala → texto)

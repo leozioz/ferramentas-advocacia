@@ -132,17 +132,48 @@ $('t-files').addEventListener('input', (e) => {
   f.title = e.target.value; renderSegs(); save();
 });
 
+/* ---------- Transcritor rápido: programa neste computador que usa a placa NVIDIA ---------- */
+// (tools/transcritor-rapido). Se estiver aberto, o áudio vai para ele em vez do Whisper do navegador.
+const LOCAL = 'http://127.0.0.1:8771';
+const LANG_COD = { portuguese: 'pt', english: 'en', spanish: 'es', italian: 'it', french: 'fr', german: 'de' };
+async function localAtivo() {
+  try {
+    const r = await fetch(LOCAL + '/status', { signal: AbortSignal.timeout(1000) });
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+async function transcreverLocal(audio, task, language, onProgress) {
+  const r = await fetch(`${LOCAL}/transcrever?task=${task}&language=${LANG_COD[language] || ''}`, { method: 'POST', body: audio });
+  if (!r.ok) throw new Error('O Transcritor rápido não respondeu.');
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const msg = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+      if (msg.erro) throw new Error('Transcritor rápido: ' + msg.erro);
+      if (msg.segmentos) return msg.segmentos;
+      if (msg.progresso != null) onProgress(msg.progresso);
+    }
+    if (done) throw new Error('O Transcritor rápido fechou no meio da transcrição.');
+  }
+}
+
 /* ---------- transcrição ---------- */
 async function run() {
   const model = $('t-model').value, task = $('t-task').value, language = $('t-lang').value;
   const clean = $('t-clean').checked, diarize = $('t-diar').checked;
   running = true; renderFiles();
-  st.meta = { model, modelLabel: MODEL_LABEL[model], cleaned: clean, diarized: diarize, translated: task === 'translate' };
+  // o modelo do programa (large-v3-turbo) não traduz: tradução fica no navegador
+  const local = task === 'transcribe' ? await localAtivo() : null;
+  st.meta = { model, modelLabel: local ? 'Whisper large-v3-turbo (Transcritor rápido)' : MODEL_LABEL[model], cleaned: clean, diarized: diarize, translated: task === 'translate' };
   const t0 = performance.now();
   try {
     status('Preparando o modelo de IA…', 0);
-    const { device } = await rpc({ type: 'load', model });
-    showDevice(device);
+    if (local) showDevice('local', local.dispositivo);
+    else showDevice((await rpc({ type: 'load', model })).device);
     if (diarize) await rpc({ type: 'load', url: VOICE_MODEL }, [], null, 'voz');
     const todo = st.files.filter((f) => f.blob && f.status !== 'done');
     for (const [n, f] of todo.entries()) {
@@ -154,9 +185,17 @@ async function run() {
       f.duration = audio.length / SR;
       f.status = 'transcribing'; renderFiles();
       status(`${label}: transcrevendo…`, n / todo.length);
-      const pts = slicePoints(audio);
+      const pts = local ? [] : slicePoints(audio);
       const segs = [];
       const started = performance.now();
+      if (local) {
+        // o vídeo inteiro de uma vez; o programa acha as pausas sozinho
+        const lidos = await transcreverLocal(audio, task, language, (p) => {
+          f.progress = p; renderFiles();
+          status(`${label}: transcrevendo na placa NVIDIA… ${Math.round(p * 100)}%`, (n + p * (diarize ? 0.85 : 1)) / todo.length);
+        });
+        for (const c of lidos) segs.push(...splitTurns(c.start, c.end, c.text));
+      }
       for (let k = 0; k < pts.length - 1; k++) {
         const s = pts[k], e = pts[k + 1], off = s / SR;
         if (!isSilent(audio, s, e)) {
@@ -573,12 +612,16 @@ $('t-model').addEventListener('change', () => {
 });
 window.addEventListener('beforeunload', (e) => { if (running) { e.preventDefault(); e.returnValue = ''; } });
 
-function showDevice(device) {
-  $('t-device').textContent = device === 'webgpu'
-    ? 'Usando a placa de vídeo (transcrição acelerada).'
-    : 'Sem placa de vídeo compatível: a transcrição usa o processador e fica mais lenta.';
+function showDevice(device, onde) {
+  $('t-device').textContent = device === 'local'
+    ? `Transcritor rápido ligado: usa ${onde === 'cuda' ? 'a placa NVIDIA' : 'o processador'} deste computador, sempre na qualidade máxima.`
+    : device === 'webgpu'
+      ? 'Usando a placa de vídeo (transcrição acelerada).'
+      : 'Sem placa de vídeo compatível: a transcrição usa o processador e fica mais lenta.';
 }
 (async () => {
+  const local = await localAtivo();
+  if (local) return showDevice('local', local.dispositivo);
   try { const { gpu } = await rpc({ type: 'gpu' }); showDevice(gpu ? 'webgpu' : 'wasm'); } catch (e) {}
 })();
 renderFiles(); offerRestore();
